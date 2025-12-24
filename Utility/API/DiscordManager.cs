@@ -1,0 +1,1 @@
+namespace DiscordRPC { public class DiscordManager { } }

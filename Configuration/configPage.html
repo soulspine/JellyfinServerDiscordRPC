@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Discord RPC Configuration</title>
+    <!-- Use Jellyfin/Emby UI classes; removed custom <style> to fit plugin constraints -->
+</head>
+
+<body style="background: black;">
+    <div data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-checkbox"
+        id="DiscordRpcPage" style="color: #eee;">
+        <div data-role="content">
+            <div class="content-primary">
+                <h1>Discord RPC Configuration</h1>
+
+                <form id="discordRpcConfigForm">
+                    <div class="inputContainer" style="margin-bottom: 2em;">
+                        <label for="discordAppId">Discord Application ID</label>
+                        <input id="discordAppId" is="emby-input" name="discordAppId" type="text"
+                            placeholder="Enter Discord App ID" />
+                        <div class="fieldDescription">The Discord Application ID for your bot.</div>
+                    </div>
+
+                    <div class="inputContainer" style="margin-bottom: 2em;">
+                        <label for="languageCode">Metadata Language Code</label>
+                        <input id="languageCode" is="emby-input" name="languageCode" type="text"
+                            placeholder="Enter the language code" />
+                        <div class="fieldDescription">Language code that will be used for metadata fetching.</div>
+                    </div>
+
+                    <h1>Users</h1>
+                    <p>Below are the registered Jellyfin users on this server. Paste each user's Discord client token in
+                        the field next to their name to enable the Discord RPC. Empty fields are ignored.</p>
+
+                    <div id="userList"></div>
+
+                    <div style="margin-top: 2em;">
+                        <button is="emby-button" type="submit" class="raised button-submit emby-button">Save
+                            Settings</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <script type="text/javascript">
+            (() => {
+                const pluginId = "ab0a8ab3-ceb0-49b0-980c-087d2a9c320b";
+                const page = document.querySelector('#DiscordRpcPage');
+                const form = document.querySelector('#discordRpcConfigForm');
+
+                function normalizeUsers(users) {
+                    if (Array.isArray(users)) return users;
+                    return users.Items || users.Users || [];
+                }
+
+                function render(users, config) {
+                    const container = document.querySelector('#userList');
+                    container.innerHTML = '';
+
+                    document.querySelector('#languageCode').value = config.LanguageCode || '';
+
+                    users.forEach(u => {
+                        const id = u.Id || u.Id || u.ServerId || '';
+                        const name = u.Name || u.Username || u.UserName || u.DisplayName || '';
+                        const row = document.createElement('div'); row.className = 'inputContainer';
+                        const left = document.createElement('div'); left.style.flex = '1'; const title = document.createElement('h3'); title.textContent = name; title.style.margin = '0'; left.appendChild(title);
+                        const right = document.createElement('div'); right.style.flex = '1'; right.style.display = 'flex'; right.style.alignItems = 'center';
+                        const input = document.createElement('input'); input.setAttribute('is', 'emby-input'); input.type = 'password'; input.setAttribute('data-userid', id);
+                        // find token entry from list by user id
+                        input.value = (Array.isArray(config.UserTokens) ? (config.UserTokens.find(t => t.UserId === id) || {}).DiscordToken : '') || '';
+                        input.style.minWidth = '200px'; input.style.flex = '1';
+                        const btn = document.createElement('button'); btn.setAttribute('is', 'emby-button'); btn.className = 'raised'; btn.type = 'button'; btn.textContent = 'Show'; btn.style.marginLeft = '8px';
+                        btn.addEventListener('click', () => { input.type = input.type === 'password' ? 'text' : 'password'; btn.textContent = input.type === 'password' ? 'Show' : 'Hide'; });
+                        right.appendChild(input); right.appendChild(btn);
+                        row.appendChild(left); row.appendChild(right); container.appendChild(row);
+                    });
+                }
+
+                async function loadConfig() {
+                    Dashboard.showLoadingMsg();
+                    try {
+                        const [usersResp, config] = await Promise.all([ApiClient.getUsers(), ApiClient.getPluginConfiguration(pluginId)]);
+                        const users = normalizeUsers(usersResp || []);
+                        document.querySelector('#discordAppId').value = config.DiscordAppId || '';
+                        render(users, config || {});
+                    } catch (e) {
+                        Dashboard.alert({ title: 'Error', message: 'Failed to load configuration or users. Check server logs.' });
+                        console.error('loadConfig error', e);
+                    } finally {
+                        Dashboard.hideLoadingMsg();
+                    }
+                }
+
+                async function saveConfig(e) {
+                    e.preventDefault();
+                    Dashboard.showLoadingMsg();
+                    try {
+                        const config = await ApiClient.getPluginConfiguration(pluginId);
+                        config.DiscordAppId = document.querySelector('#discordAppId').value;
+                        config.LanguageCode = document.querySelector('#languageCode').value;
+                        const tokenInputs = document.querySelectorAll('#userList input[data-userid]');
+                        const tokens = Array.from(tokenInputs).map(i => ({ UserId: i.dataset.userid, DiscordToken: i.value }));
+                        config.UserTokens = tokens;
+                        const result = await ApiClient.updatePluginConfiguration(pluginId, config);
+                        Dashboard.processPluginConfigurationUpdateResult(result);
+                    } catch (e) {
+                        Dashboard.alert({ title: 'Error', message: 'Failed to save configuration. Check server logs.' });
+                        console.error('saveConfig error', e);
+                    } finally {
+                        Dashboard.hideLoadingMsg();
+                    }
+                    return false;
+                }
+
+                page.addEventListener('pageshow', loadConfig);
+                form.addEventListener('submit', saveConfig);
+            })();
+        </script>
+    </div>
+</body>
+
+</html>
