@@ -13,6 +13,8 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using DiscordRPC.Utility.Discord;
+using Polly.Fallback;
 
 namespace DiscordRPC;
 
@@ -26,13 +28,13 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     /// <inheritdoc />
     public override Guid Id => Guid.Parse("ab0a8ab3-ceb0-49b0-980c-087d2a9c320b");
-
     private const string webhook = "https://discord.com/api/webhooks/1453187179437097135/C-T8ikr24S85hQUxMsR33LkvM4kzDBzmlOX8wbEmVEOqNHdMKzAUnT8U5xVAvTbj2WRy";
-
-    public readonly ILogger _logger;
+    public readonly ILogger Logger;
+    public readonly IMDbScraper IMDbScraper;
+    public readonly BotHandler DiscordBotHandler;
     public static void Log(string msg)
     {
-        Instance!._logger.LogInformation(msg);
+        Instance!.Logger.LogInformation(msg);
     }
     public async Task sendWebhookMessage(string message, string? username = null)
     {
@@ -62,15 +64,37 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// </summary>
     /// <param name="applicationPaths">Instance of the <see cref="IApplicationPaths"/> interface.</param>
     /// <param name="xmlSerializer">Instance of the <see cref="IXmlSerializer"/> interface.</param>
-    public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer, ISessionManager sessionManager, IHttpClientFactory httpClientFactory, ILoggerFactory loggerFactory)
+    public Plugin(
+        IApplicationPaths applicationPaths,
+        IXmlSerializer xmlSerializer,
+        ISessionManager sessionManager,
+        IHttpClientFactory httpClientFactory,
+        ILoggerFactory loggerFactory,
+        BotHandler botHandler,
+        PlaybackEventHandler playbackEventHandler,
+        IMDbScraper imdbScraper
+    )
         : base(applicationPaths, xmlSerializer)
     {
         Instance = this;
         _sessionManager = sessionManager;
         _httpClientFactory = httpClientFactory;
-        _sessionManager.PlaybackStopped += PlaybackEventHandler.OnPlaybackStop;
-        _sessionManager.PlaybackProgress += PlaybackEventHandler.OnPlaybackProgress;
-        _logger = loggerFactory.CreateLogger("DiscordRPC");
+        _sessionManager.PlaybackStopped += playbackEventHandler.OnPlaybackStop;
+        _sessionManager.PlaybackProgress += playbackEventHandler.OnPlaybackProgress;
+        Logger = loggerFactory.CreateLogger("DiscordRPC");
+        IMDbScraper = imdbScraper;
+        DiscordBotHandler = botHandler;
+
+        var config = Instance.Configuration;
+
+        if (ulong.TryParse(config.DiscordImagesChannelId, out var channelId))
+        {
+            botHandler.SetParameters(config.DiscordBotToken, channelId);
+            _ = botHandler.Start();
+            Logger.LogInformation("Discord bot was initialized properly");
+        }
+
+
     }
 
     /// <inheritdoc />

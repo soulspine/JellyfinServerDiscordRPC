@@ -14,22 +14,37 @@
 
                 <form id="discordRpcConfigForm">
                     <div class="inputContainer" style="margin-bottom: 2em;">
-                        <label for="discordAppId">Discord Application ID</label>
-                        <input id="discordAppId" is="emby-input" name="discordAppId" type="text"
-                            placeholder="Enter Discord App ID" />
-                        <div class="fieldDescription">The Discord Application ID for your bot.</div>
+                        <label for="discordBotToken">Discord Bot Token</label>
+                        <div style="display: flex; align-items: center;">
+                            <input id="discordBotToken" is="emby-input" name="discordBotToken" type="password"
+                                style="flex: 1;" />
+                            <button id="btnShowBotToken" is="emby-button" type="button" class="raised"
+                                style="margin-left: 8px;">Show</button>
+                        </div>
+                        <div class="fieldDescription">Token for your discord bot</div>
+                    </div>
+
+                    <div class="inputContainer" style="margin-bottom: 2em;">
+                        <label for="discordImagesChannelId">Discord Image Conversion Channel Id</label>
+                        <div style="display: flex; align-items: center;">
+                            <input id="discordImagesChannelId" is="emby-input" name="discordImagesChannelId"
+                                type="password" style="flex: 1;" />
+                            <button id="btnShowChannelId" is="emby-button" type="button" class="raised"
+                                style="margin-left: 8px;">Show</button>
+                        </div>
+                        <div class="fieldDescription">Discord channel ID that will be used to convert publicly available
+                            images to Discord's media proxy standard.</div>
                     </div>
 
                     <div class="inputContainer" style="margin-bottom: 2em;">
                         <label for="languageCode">Metadata Language Code</label>
-                        <input id="languageCode" is="emby-input" name="languageCode" type="text"
-                            placeholder="Enter the language code" />
+                        <input id="languageCode" is="emby-input" name="languageCode" type="text" />
                         <div class="fieldDescription">Language code that will be used for metadata fetching.</div>
                     </div>
 
                     <h1>Users</h1>
                     <p>Below are the registered Jellyfin users on this server. Paste each user's Discord client token in
-                        the field next to their name to enable the Discord RPC. Empty fields are ignored.</p>
+                        the field next to their name to enable the Discord RPC.</p>
 
                     <div id="userList"></div>
 
@@ -47,6 +62,15 @@
                 const page = document.querySelector('#DiscordRpcPage');
                 const form = document.querySelector('#discordRpcConfigForm');
 
+                function setupToggle(buttonId, inputId) {
+                    const btn = document.getElementById(buttonId);
+                    const input = document.getElementById(inputId);
+                    btn.addEventListener('click', () => {
+                        input.type = input.type === 'password' ? 'text' : 'password';
+                        btn.textContent = input.type === 'password' ? 'Show' : 'Hide';
+                    });
+                }
+
                 function normalizeUsers(users) {
                     if (Array.isArray(users)) return users;
                     return users.Items || users.Users || [];
@@ -55,24 +79,31 @@
                 function render(users, config) {
                     const container = document.querySelector('#userList');
                     container.innerHTML = '';
-
                     document.querySelector('#languageCode').value = config.LanguageCode || '';
 
                     users.forEach(u => {
-                        const id = u.Id;
                         const name = u.Name;
                         const row = document.createElement('div'); row.className = 'inputContainer';
-                        const left = document.createElement('div'); left.style.flex = '1'; const title = document.createElement('h3'); title.textContent = name; title.style.margin = '0'; left.appendChild(title);
+                        row.style.display = 'flex'; row.style.alignItems = 'center'; row.style.marginBottom = '1em';
+
+                        const left = document.createElement('div'); left.style.flex = '1';
+                        const title = document.createElement('h3'); title.textContent = name; title.style.margin = '0';
+                        left.appendChild(title);
+
                         const right = document.createElement('div'); right.style.flex = '1'; right.style.display = 'flex'; right.style.alignItems = 'center';
                         const input = document.createElement('input');
                         input.setAttribute('is', 'emby-input');
                         input.type = 'password';
                         input.setAttribute('data-username', name);
                         input.value = (Array.isArray(config.UserTokens) ? (config.UserTokens.find(t => t.Username === name) || {}).DiscordToken : '') || '';
-                        input.style.minWidth = '200px';
                         input.style.flex = '1';
+
                         const btn = document.createElement('button'); btn.setAttribute('is', 'emby-button'); btn.className = 'raised'; btn.type = 'button'; btn.textContent = 'Show'; btn.style.marginLeft = '8px';
-                        btn.addEventListener('click', () => { input.type = input.type === 'password' ? 'text' : 'password'; btn.textContent = input.type === 'password' ? 'Show' : 'Hide'; });
+                        btn.addEventListener('click', () => {
+                            input.type = input.type === 'password' ? 'text' : 'password';
+                            btn.textContent = input.type === 'password' ? 'Show' : 'Hide';
+                        });
+
                         right.appendChild(input); right.appendChild(btn);
                         row.appendChild(left); row.appendChild(right); container.appendChild(row);
                     });
@@ -83,10 +114,10 @@
                     try {
                         const [usersResp, config] = await Promise.all([ApiClient.getUsers(), ApiClient.getPluginConfiguration(pluginId)]);
                         const users = normalizeUsers(usersResp || []);
-                        document.querySelector('#discordAppId').value = config.DiscordAppId || '';
+                        document.querySelector('#discordBotToken').value = config.DiscordBotToken || '';
+                        document.querySelector('#discordImagesChannelId').value = config.DiscordImagesChannelId || '';
                         render(users, config || {});
                     } catch (e) {
-                        Dashboard.alert({ title: 'Error', message: 'Failed to load configuration or users. Check server logs.' });
                         console.error('loadConfig error', e);
                     } finally {
                         Dashboard.hideLoadingMsg();
@@ -98,21 +129,17 @@
                     Dashboard.showLoadingMsg();
                     try {
                         const config = await ApiClient.getPluginConfiguration(pluginId);
-                        config.DiscordAppId = document.querySelector('#discordAppId').value;
+                        config.DiscordBotToken = document.querySelector('#discordBotToken').value;
+                        config.DiscordImagesChannelId = document.querySelector('#discordImagesChannelId').value;
                         config.LanguageCode = document.querySelector('#languageCode').value;
-
                         const tokenInputs = document.querySelectorAll('#userList input[data-username]');
-                        const tokens = Array.from(tokenInputs).map(i => ({
+                        config.UserTokens = Array.from(tokenInputs).map(i => ({
                             Username: i.dataset.username,
                             DiscordToken: i.value
                         }));
-
-                        config.UserTokens = tokens;
-
                         const result = await ApiClient.updatePluginConfiguration(pluginId, config);
                         Dashboard.processPluginConfigurationUpdateResult(result);
                     } catch (e) {
-                        Dashboard.alert({ title: 'Error', message: 'Failed to save configuration. Check server logs.' });
                         console.error('saveConfig error', e);
                     } finally {
                         Dashboard.hideLoadingMsg();
@@ -120,8 +147,8 @@
                     return false;
                 }
 
-
-
+                setupToggle('btnShowBotToken', 'discordBotToken');
+                setupToggle('btnShowChannelId', 'discordImagesChannelId');
                 page.addEventListener('pageshow', loadConfig);
                 form.addEventListener('submit', saveConfig);
             })();

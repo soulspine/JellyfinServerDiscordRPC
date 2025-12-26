@@ -16,11 +16,12 @@ using System.Runtime.Serialization;
 using System.ComponentModel.DataAnnotations;
 using MediaBrowser.Controller.Entities;
 using System.Linq;
+using DiscordRPC.Utility.Discord.GatewayDTO;
 
 
-namespace DiscordRPC.Utility.API;
+namespace DiscordRPC.Utility.Discord;
 
-public class DiscordHandler : IDisposable
+public class UserHandler : IDisposable
 {
     private WebsocketClient? _ws;
     private const string INITIAL_URL = "wss://gateway.discord.gg";
@@ -57,7 +58,7 @@ public class DiscordHandler : IDisposable
                 d = new
                 {
                     token = userToken,
-                    intents = 0,
+                    intents = 0, //https://discord.com/developers/docs/events/gateway#list-of-intents
                     properties = new
                     {
                         os = "linux",
@@ -85,7 +86,7 @@ public class DiscordHandler : IDisposable
             op = 3,
             d = new
             {
-                status = "online",
+                status = "idle",
                 activities = new object[] { },
                 afk = false,
                 since = (long?)null,
@@ -98,7 +99,7 @@ public class DiscordHandler : IDisposable
         return _isReady;
     }
 
-    public DiscordHandler(string token)
+    public UserHandler(string token)
     {
         _isDisposed = false;
         _isReady = false;
@@ -108,29 +109,14 @@ public class DiscordHandler : IDisposable
     }
 
     // todo add state and state_url
-    public void UpdatePresence(string activityName, string? detailsUrl = null, long? startTime = null, long? endTime = null)
+    public void UpdatePresence(
+        string activityName,
+        string? detailsUrl = null,
+        Timestamps? timestampsObj = null,
+        Assets? assetsObj = null
+    )
     {
         if (!_isReady) return;
-
-        dynamic? timestampsObj = null;
-        if (startTime.HasValue || endTime.HasValue)
-        {
-            timestampsObj = new
-            {
-                start = startTime,
-                end = endTime
-            };
-        }
-
-        /*dynamic? assetsObj = null;
-        if (!string.IsNullOrEmpty(imageUrl))
-        {
-            assetsObj = new
-            {
-                large_image = imageUrl,
-                large_text = "text",
-            };
-        }*/
 
         _ws?.Send(
             JsonConvert.SerializeObject(new
@@ -148,9 +134,10 @@ public class DiscordHandler : IDisposable
                                 type = 3,
                                 timestamps = timestampsObj,
                                 status_display_type = 2,
+                                assets = assetsObj,
                             }
                         },
-                    status = "dnd",
+                    status = "idle",
                     afk = true,
                     since = 0,
                 },
@@ -167,7 +154,7 @@ public class DiscordHandler : IDisposable
 
     private void initializeWebsocket()
     {
-        _ws?.Stop(WebSocketCloseStatus.NormalClosure, "GG");
+        _ws?.Stop(WebSocketCloseStatus.NormalClosure, "Normal Closure");
         _ws?.Dispose();
         _ws = new WebsocketClient(new Uri($"{_cachedUrl}/?v=10&encoding=json"));
         _ws.ReconnectionHappened.Subscribe(info => _ = OnConnect(info));
@@ -274,6 +261,11 @@ public class DiscordHandler : IDisposable
                 }
             case "SESSIONS_REPLACE":
                 {
+                    //Plugin.Log(JsonConvert.SerializeObject(data));
+                    break;
+                }
+            case "MESSAGE_CREATE":
+                {
                     Plugin.Log(JsonConvert.SerializeObject(data));
                     break;
                 }
@@ -286,6 +278,7 @@ public class DiscordHandler : IDisposable
         {
             _isDisposed = true;
             _heartbeatCts?.Cancel();
+            _ws?.Stop(WebSocketCloseStatus.NormalClosure, "Normal Closure");
             _ws?.Dispose();
         }
     }

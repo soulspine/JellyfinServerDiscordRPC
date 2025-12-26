@@ -2,11 +2,10 @@ using System;
 using System.Net.Http;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
-using Jellyfin.Database.Implementations.Entities.Libraries;
 
 namespace DiscordRPC.Utility;
 
-public static class IMDbScraper
+public class IMDbScraper
 {
     public class MovieMetadata
     {
@@ -28,7 +27,7 @@ public static class IMDbScraper
     /// </summary>
     /// <param name="imdbId"></param>
     /// <returns></returns>
-    public static async Task<MovieMetadata> GetImdbMetadata(string imdbId)
+    public async Task<MovieMetadata> GetImdbMetadata(string imdbId)
     {
         string languageCode = Plugin.Config().LanguageCode;
         if (string.IsNullOrEmpty(languageCode)) languageCode = "en";
@@ -81,7 +80,7 @@ public static class IMDbScraper
                 var imageMatch = Regex.Match(html, @"<meta[^>]+property=""og:image""[^>]+content=""([^""]+)""", RegexOptions.IgnoreCase);
                 if (imageMatch.Success)
                 {
-                    metadata.PosterUrl = imageMatch.Groups[1].Value;
+                    metadata.PosterUrl = await Plugin.Instance!.DiscordBotHandler.GetMediaProxyForThisImage(imageMatch.Groups[1].Value);
                 }
 
                 metadata.Id = imdbId;

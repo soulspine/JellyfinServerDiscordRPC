@@ -5,7 +5,8 @@ namespace DiscordRPC.Configuration
 {
     public class PluginConfiguration : BasePluginConfiguration
     {
-        public string DiscordAppId { get; set; } = string.Empty;
+        public string DiscordBotToken { get; set; } = string.Empty;
+        public string DiscordImagesChannelId { get; set; } = string.Empty;
         public string LanguageCode { get; set; } = "en";
         // List of user token entries (UserId + DiscordToken)
         public List<UserToken> UserTokens { get; set; } = new List<UserToken>();

@@ -14,7 +14,6 @@ using MediaBrowser.Model.Entities;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Identity.Data;
-using DiscordRPC.Utility.API;
 using System.Linq;
 using System.Security.Cryptography.X509Certificates;
 using J2N;
@@ -23,10 +22,15 @@ using DiscordRPC;
 using ICU4N.Text;
 using System.Dynamic;
 using System.Net.Mime;
+using Microsoft.AspNetCore.Mvc.ViewFeatures;
+using DiscordRPC.Utility.Discord;
+using Jellyfin.Database.Implementations.Entities;
+using DiscordRPC.Utility.Discord.GatewayDTO;
+using Microsoft.Extensions.Logging;
 
 namespace DiscordRPC.Utility;
 
-static class PlaybackEventHandler
+public class PlaybackEventHandler
 {
     /// <summary>
     /// Class representing info and fields needed to properly validate and track stream events.
@@ -38,6 +42,7 @@ static class PlaybackEventHandler
         /// Gets updated on every playback event. Used to detect skips and rewinds.
         /// </summary>
         public long PreviousTick { get; set; }
+        public string SessionId { get; set; }
         /// <summary>
         /// Title of watched media, fetched from Jellyfin so it will be localized based on the server's settings. It's used as a fallback when IBMDb fetch fails.
         /// </summary>
@@ -66,7 +71,7 @@ static class PlaybackEventHandler
         /// <summary>
         /// Dedicated object handling the Discord Gateway connection. Lets PlaybackEventHandler update rich presences.
         /// </summary>
-        public DiscordHandler Discord { get; set; }
+        public UserHandler Discord { get; set; }
         /// <summary>
         /// It's here only because fetching this data in the constructor synchronously would freeze it for 2-3 seconds. It's basically a background runner.
         /// </summary>
@@ -74,7 +79,7 @@ static class PlaybackEventHandler
         private async Task runIMDbFetch(string? id)
         {
             if (string.IsNullOrEmpty(id)) return;
-            Metadata = await IMDbScraper.GetImdbMetadata(id);
+            Metadata = await Plugin.Instance!.IMDbScraper.GetImdbMetadata(id);
         }
         /// <summary>
         /// Constructor for the PlaybackInfoContainer class.
@@ -89,6 +94,7 @@ static class PlaybackEventHandler
         /// <param name="isPaused">Used to keep track of player state. Default: false</param>
         public PlaybackInfoContainer(
             string discordToken,
+            string sessionId,
             long previousTick = 0,
             string title = "",
             string seasonName = "",
@@ -98,6 +104,7 @@ static class PlaybackEventHandler
             bool isPaused = false
         )
         {
+            SessionId = sessionId;
             PreviousTick = previousTick;
             Title = title;
             Season = seasonName;
@@ -106,9 +113,8 @@ static class PlaybackEventHandler
             _ = runIMDbFetch(imdbId);
             FirstPresenceSetHappened = firstPresenceSetHappened;
             IsPaused = isPaused;
-            Discord = new DiscordHandler(discordToken);
+            Discord = new UserHandler(discordToken);
         }
-
     }
 
     /// <summary>
@@ -117,38 +123,13 @@ static class PlaybackEventHandler
     /// ignore multiple sessions and only track the first one that was started.
     /// Freeing it up will result in the ability to track a new session for that user.
     /// </summary>
-    private static readonly Dictionary<Guid, PlaybackInfoContainer> infoMap = new Dictionary<Guid, PlaybackInfoContainer>();
+    private readonly Dictionary<Guid, PlaybackInfoContainer> _infoMap = new Dictionary<Guid, PlaybackInfoContainer>();
     /// <summary>
-    /// Used to determine whether a skip / rewind happened. Exact way of checking this is: if abs(currentTick - previousTick) > seekRange, we can register is as seek / rewind.
+    /// Used to determine whether a skip / rewind happened. Exact way of checking this is: if abs(currentTick - previousTick) > _seekRange, we can register is as seek / rewind.
     /// Recommended value is double the value of tps because sometimes updates report a bit less / more.
     /// This basically allows the best ratio of making sure we are correct while allowing for small deviations like that.
     /// </summary>
-    private const double seekRange = TimeSpan.TicksPerSecond * 2;
-
-    private static void setPlayingRPC(DiscordHandler dc, string mediaName, long positionTick, long runtimeTick, string? detailsUrl = null)
-    {
-        long positionMs = (long)TimeSpan.FromTicks(positionTick).TotalMilliseconds;
-        long durationMs = (long)TimeSpan.FromTicks(runtimeTick).TotalMilliseconds;
-
-        long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-
-        long startTime = now - positionMs;
-        long endTime = startTime + durationMs;
-
-        Plugin.Log($"Updating {mediaName} to playing");
-        dc.UpdatePresence(mediaName, detailsUrl, startTime, endTime);
-    }
-
-    private static void setPausedRPC(DiscordHandler dc, string mediaName, string? detailsUrl = null)
-    {
-        Plugin.Log($"Updating {mediaName} to paused");
-        dc.UpdatePresence(mediaName, detailsUrl);
-    }
-
-    private static void clearRPC(DiscordHandler dc)
-    {
-        dc.ClearPresence();
-    }
+    private const double _seekRange = TimeSpan.TicksPerSecond * 3;
 
     /// <summary>
     /// This method is called when playback is updated (every second and on pause/resume).
@@ -156,7 +137,7 @@ static class PlaybackEventHandler
     /// </summary>
     /// <param name="sender"></param>
     /// <param name="e"></param>
-    public static async void OnPlaybackProgress(object? sender, PlaybackProgressEventArgs e)
+    public async void OnPlaybackProgress(object? sender, PlaybackProgressEventArgs e)
     {
         var session = e.Session;
         var item = e.MediaInfo;
@@ -170,21 +151,22 @@ static class PlaybackEventHandler
         PlaybackInfoContainer info;
 
         // Initialize playback info container if it's not occupied yet
-        if (!infoMap.TryGetValue(session.UserId, out info!))
+        if (!_infoMap.TryGetValue(session.UserId, out info!))
         {
-            infoMap[session.UserId] = new PlaybackInfoContainer(
+            _infoMap[session.UserId] = new PlaybackInfoContainer(
                 discordToken,
+                e.PlaySessionId,
                 e.PlaybackPositionTicks ?? 0,
                 item.Name,
                 item.SeasonName,
                 item.EpisodeTitle,
                 item.GetProviderId(MetadataProvider.Imdb)
             );
-            info = infoMap[session.UserId];
+            info = _infoMap[session.UserId];
         }
 
         // check for title/season/episode change - playback different from one we have stored
-        if (info.Title != item.Name || info.Season != item.SeasonName || info.Episode != item.EpisodeTitle)
+        if (e.PlaySessionId != info.SessionId)
         {
             return; // ignore different sessions
         }
@@ -210,8 +192,9 @@ static class PlaybackEventHandler
         // check for skips / rewinds
         if (e.PlaybackPositionTicks.HasValue && !info.IsPaused)
         {
-            if (Math.Abs(e.PlaybackPositionTicks.Value - info.PreviousTick) > seekRange)
+            if (Math.Abs(e.PlaybackPositionTicks.Value - info.PreviousTick) > _seekRange)
             {
+                Plugin.Instance!.Logger.LogInformation($"SEEK {Math.Abs(e.PlaybackPositionTicks.Value - info.PreviousTick)} {_seekRange}");
                 updatePlaying = true;
             }
             info.PreviousTick = e.PlaybackPositionTicks.Value;
@@ -222,40 +205,68 @@ static class PlaybackEventHandler
             var title = info.Metadata?.Title != null ? info.Metadata.Title : info.Title;
             var link = info.Metadata?.Id != null ? $"https://www.imdb.com/title/{info.Metadata.Id}" : null;
 
+            // for some reason idk why sometimes it just doesnt get the image, then this comes in handy
+            if (info.Metadata?.Id != null && info.Metadata?.PosterUrl == null)
+            {
+                info.Metadata = await Plugin.Instance!.IMDbScraper.GetImdbMetadata(info.Metadata!.Id);
+            }
+
+            Assets? assets = null;
+            if (info.Metadata?.PosterUrl != null)
+            {
+                assets = new Assets(
+                    largeImage: "mp:" + info.Metadata.PosterUrl + "?width=250&height=250",
+                    largeUrl: link
+                );
+            }
+
+            Plugin.Instance!.Logger.LogInformation($"{e.PlaySessionId} {updatePaused} {updatePlaying}");
+
             if (updatePlaying)
             {
-                setPlayingRPC(
-                    info.Discord,
-                    title,
-                    e.PlaybackPositionTicks!.Value, item.RunTimeTicks!.Value,
-                    link
+                Timestamps? timestamps = null;
+                if (e.PlaybackPositionTicks.HasValue && item.RunTimeTicks.HasValue)
+                {
+                    long positionMs = (long)TimeSpan.FromTicks(e.PlaybackPositionTicks.Value).TotalMilliseconds;
+                    long durationMs = (long)TimeSpan.FromTicks(item.RunTimeTicks.Value).TotalMilliseconds;
+
+                    long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+                    long startTime = now - positionMs;
+                    long endTime = startTime + durationMs;
+                    timestamps = new Timestamps(startTime, endTime);
+                }
+
+                info.Discord.UpdatePresence(
+                    activityName: title,
+                    detailsUrl: link,
+                    timestampsObj: timestamps,
+                    assetsObj: assets
                 );
             }
             else if (updatePaused)
             {
-                setPausedRPC(
-                    info.Discord,
-                    title,
-                    link
+                info.Discord.UpdatePresence(
+                    activityName: title,
+                    detailsUrl: link,
+                    assetsObj: assets
                 );
             }
         }
     }
 
-    public static async void OnPlaybackStop(object? sender, PlaybackProgressEventArgs e)
+    public async void OnPlaybackStop(object? sender, PlaybackProgressEventArgs e)
     {
-        if (infoMap.TryGetValue(e.Session.UserId, out var info))
+        if (_infoMap.TryGetValue(e.Session.UserId, out var info))
         {
-            var item = e.MediaInfo;
-
-            if (info.Title != item.Name || info.Season != item.SeasonName || info.Episode != item.EpisodeTitle)
+            if (info.SessionId != e.PlaySessionId)
             {
                 return; // ignore different sessions
             }
-            clearRPC(info.Discord);
-            await Task.Delay(3000);
+            info.Discord.ClearPresence();
+            await Task.Delay(300);
             info.Discord.Dispose();
-            infoMap.Remove(e.Session.UserId);
+            _infoMap.Remove(e.Session.UserId);
         }
     }
 

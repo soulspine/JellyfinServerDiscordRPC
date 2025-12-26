@@ -4,15 +4,19 @@
     <RootNamespace>DiscordRPC</RootNamespace>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Jellyfin.Controller" Version="10.11.3" />
-    <PackageReference Include="Jellyfin.Model" Version="10.11.3" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.11" />
+    <PackageReference Include="Discord.Net" Version="3.18.0" />
+    <PackageReference Include="Jellyfin.Controller" Version="10.11.3" ExcludeAssets="runtime"/>
+    <PackageReference Include="Jellyfin.Model" Version="10.11.3" ExcludeAssets="runtime"/>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.11" ExcludeAssets="runtime"/>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     <PackageReference Include="Websocket.Client" Version="5.3.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.0.11" ExcludeAssets="runtime" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.11" ExcludeAssets="runtime" /> 
   </ItemGroup>
 
   <ItemGroup>

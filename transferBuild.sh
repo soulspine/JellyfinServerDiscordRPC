@@ -3,38 +3,45 @@
 # ------ CONFIG ------
 SERVER_ALIAS="localhost"
 REMOTE_PLUGIN_DIR="/home/soulspine/.var/app/org.jellyfin.JellyfinServer/data/jellyfin/plugins/DiscordRPC"
-LOCAL_DLL_PATH="bin/Release/net9.0/DiscordRpcPlugin.dll"
+# Zmieniamy ścieżkę na folder, nie na konkretny plik
+LOCAL_BIN_PATH="bin/Release/net9.0"
 PROJ_FILE="DiscordRpcPlugin.csproj"
 # --------------------
 
 dotnet build -c Release "$PROJ_FILE"
 
-# Sprawdź czy build się udał
 if [ $? -ne 0 ]; then
     echo "Build failed. Aborting."
     exit 1
 fi
 
-echo "Build completed. Transferring plugin to server..."
+echo "Build completed. Transferring files to server..."
+
+# Upewnij się, że folder docelowy istnieje
+mkdir -p "$REMOTE_PLUGIN_DIR"
 
 if [ "$SERVER_ALIAS" == "localhost" ]; then
     flatpak kill org.jellyfin.JellyfinServer
-    cp "$LOCAL_DLL_PATH" "$REMOTE_PLUGIN_DIR/"
+    
+    rm -rf "$REMOTE_PLUGIN_DIR"
+    mkdir -p "$REMOTE_PLUGIN_DIR"
+
+    # Kopiujemy WSZYSTKIE dll z folderu bin
+    cp "$LOCAL_BIN_PATH"/*.dll "$REMOTE_PLUGIN_DIR/"
+    
+    echo "All DLLs copied locally to $REMOTE_PLUGIN_DIR"
     flatpak run org.jellyfin.JellyfinServer &
-    echo "File copied locally."
     echo "Done!"
     exit 0
 fi
 
-# Kopiowanie pliku
-scp "$LOCAL_DLL_PATH" "$SERVER_ALIAS:$REMOTE_PLUGIN_DIR/"
+# Kopiowanie dla zdalnego serwera (scp obsługuje wiele plików przez maskę)
+scp "$LOCAL_BIN_PATH"/*.dll "$SERVER_ALIAS:$REMOTE_PLUGIN_DIR/"
 
 if [ $? -eq 0 ]; then
-    echo "File transferred correctly."
-    
-    # Zdalne wykonanie komend przez SSH
-    ssh -t "$SERVER_ALIAS" "chown jellyfin:jellyfin $REMOTE_PLUGIN_DIR/$DLL_NAME && chmod 644 $REMOTE_PLUGIN_DIR/$DLL_NAME && systemctl restart jellyfin"
-    
+    echo "Files transferred correctly."
+    # Zmieniamy uprawnienia dla wszystkich plików dll w folderze
+    ssh -t "$SERVER_ALIAS" "chown -R jellyfin:jellyfin $REMOTE_PLUGIN_DIR/ && chmod 644 $REMOTE_PLUGIN_DIR/*.dll && systemctl restart jellyfin"
     echo "Done!"
 else
     echo "Error during file transfer."
