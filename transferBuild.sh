@@ -3,12 +3,11 @@
 # ------ CONFIG ------
 SERVER_ALIAS="localhost"
 REMOTE_PLUGIN_DIR="/home/soulspine/.var/app/org.jellyfin.JellyfinServer/data/jellyfin/plugins/DiscordRPC"
-DLL_NAME="DiscordRpcPlugin.dll"
-LOCAL_DLL_PATH="bin/Debug/net9.0/$DLL_NAME"
+LOCAL_DLL_PATH="bin/Release/net9.0/DiscordRpcPlugin.dll"
 PROJ_FILE="DiscordRpcPlugin.csproj"
 # --------------------
 
-dotnet build "$PROJ_FILE"
+dotnet build -c Release "$PROJ_FILE"
 
 # Sprawdź czy build się udał
 if [ $? -ne 0 ]; then
@@ -21,7 +20,7 @@ echo "Build completed. Transferring plugin to server..."
 if [ "$SERVER_ALIAS" == "localhost" ]; then
     flatpak kill org.jellyfin.JellyfinServer
     cp "$LOCAL_DLL_PATH" "$REMOTE_PLUGIN_DIR/"
-    setsid flatpak run org.jellyfin.JellyfinServer >/dev/null 2>&1 < /dev/null &
+    flatpak run org.jellyfin.JellyfinServer &
     echo "File copied locally."
     echo "Done!"
     exit 0

@@ -1,6 +1,8 @@
+using System;
 using System.Net.Http;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using Jellyfin.Database.Implementations.Entities.Libraries;
 
 namespace DiscordRPC.Utility;
 
@@ -20,9 +22,16 @@ public static class IMDbScraper
         }
     }
 
-    public static async Task<MovieMetadata?> GetImdbMetadata(string? imdbId, string languageCode = "en")
+    /// <summary>
+    /// Scrapes metadata of an entry given the id in IMDb's system. If fetch is unsuccesful, returns a MovieMetadata object with all fields empty.
+    /// Pulls a language code from plugin's config and fetches info based on that.
+    /// </summary>
+    /// <param name="imdbId"></param>
+    /// <returns></returns>
+    public static async Task<MovieMetadata> GetImdbMetadata(string imdbId)
     {
-        if (string.IsNullOrEmpty(imdbId)) return null;
+        string languageCode = Plugin.Config().LanguageCode;
+        if (string.IsNullOrEmpty(languageCode)) languageCode = "en";
 
         try
         {
@@ -79,9 +88,10 @@ public static class IMDbScraper
                 return metadata;
             }
         }
-        catch
+        catch (Exception e)
         {
-            return null;
+            Plugin.Log(e.Message);
+            return new MovieMetadata();
         }
     }
 }

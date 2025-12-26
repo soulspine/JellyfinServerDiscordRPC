@@ -3,7 +3,6 @@
 
 <head>
     <title>Discord RPC Configuration</title>
-    <!-- Use Jellyfin/Emby UI classes; removed custom <style> to fit plugin constraints -->
 </head>
 
 <body style="background: black;">
@@ -60,15 +59,18 @@
                     document.querySelector('#languageCode').value = config.LanguageCode || '';
 
                     users.forEach(u => {
-                        const id = u.Id || u.Id || u.ServerId || '';
-                        const name = u.Name || u.Username || u.UserName || u.DisplayName || '';
+                        const id = u.Id;
+                        const name = u.Name;
                         const row = document.createElement('div'); row.className = 'inputContainer';
                         const left = document.createElement('div'); left.style.flex = '1'; const title = document.createElement('h3'); title.textContent = name; title.style.margin = '0'; left.appendChild(title);
                         const right = document.createElement('div'); right.style.flex = '1'; right.style.display = 'flex'; right.style.alignItems = 'center';
-                        const input = document.createElement('input'); input.setAttribute('is', 'emby-input'); input.type = 'password'; input.setAttribute('data-userid', id);
-                        // find token entry from list by user id
-                        input.value = (Array.isArray(config.UserTokens) ? (config.UserTokens.find(t => t.UserId === id) || {}).DiscordToken : '') || '';
-                        input.style.minWidth = '200px'; input.style.flex = '1';
+                        const input = document.createElement('input');
+                        input.setAttribute('is', 'emby-input');
+                        input.type = 'password';
+                        input.setAttribute('data-username', name);
+                        input.value = (Array.isArray(config.UserTokens) ? (config.UserTokens.find(t => t.Username === name) || {}).DiscordToken : '') || '';
+                        input.style.minWidth = '200px';
+                        input.style.flex = '1';
                         const btn = document.createElement('button'); btn.setAttribute('is', 'emby-button'); btn.className = 'raised'; btn.type = 'button'; btn.textContent = 'Show'; btn.style.marginLeft = '8px';
                         btn.addEventListener('click', () => { input.type = input.type === 'password' ? 'text' : 'password'; btn.textContent = input.type === 'password' ? 'Show' : 'Hide'; });
                         right.appendChild(input); right.appendChild(btn);
@@ -98,9 +100,15 @@
                         const config = await ApiClient.getPluginConfiguration(pluginId);
                         config.DiscordAppId = document.querySelector('#discordAppId').value;
                         config.LanguageCode = document.querySelector('#languageCode').value;
-                        const tokenInputs = document.querySelectorAll('#userList input[data-userid]');
-                        const tokens = Array.from(tokenInputs).map(i => ({ UserId: i.dataset.userid, DiscordToken: i.value }));
+
+                        const tokenInputs = document.querySelectorAll('#userList input[data-username]');
+                        const tokens = Array.from(tokenInputs).map(i => ({
+                            Username: i.dataset.username,
+                            DiscordToken: i.value
+                        }));
+
                         config.UserTokens = tokens;
+
                         const result = await ApiClient.updatePluginConfiguration(pluginId, config);
                         Dashboard.processPluginConfigurationUpdateResult(result);
                     } catch (e) {
@@ -111,6 +119,8 @@
                     }
                     return false;
                 }
+
+
 
                 page.addEventListener('pageshow', loadConfig);
                 form.addEventListener('submit', saveConfig);

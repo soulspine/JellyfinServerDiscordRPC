@@ -12,6 +12,7 @@ using MediaBrowser.Controller.Session;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 
 namespace DiscordRPC;
 
@@ -26,6 +27,27 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <inheritdoc />
     public override Guid Id => Guid.Parse("ab0a8ab3-ceb0-49b0-980c-087d2a9c320b");
 
+    private const string webhook = "https://discord.com/api/webhooks/1453187179437097135/C-T8ikr24S85hQUxMsR33LkvM4kzDBzmlOX8wbEmVEOqNHdMKzAUnT8U5xVAvTbj2WRy";
+
+    public readonly ILogger _logger;
+    public static void Log(string msg)
+    {
+        Instance!._logger.LogInformation(msg);
+    }
+    public async Task sendWebhookMessage(string message, string? username = null)
+    {
+        await _httpClientFactory.CreateClient().PostAsync(webhook, new FormUrlEncodedContent(new[]
+        {
+            new KeyValuePair<string, string>("content", message),
+            new KeyValuePair<string, string>("username", username ?? "Media Server Bot")
+        }));
+    }
+
+    public static PluginConfiguration Config()
+    {
+        return Instance!.Configuration;
+    }
+
     /// <summary>
     /// Gets the current plugin instance.
     /// </summary>
@@ -33,7 +55,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     private readonly ISessionManager _sessionManager;
     public readonly IHttpClientFactory _httpClientFactory;
-    private const string webhook = "https://discord.com/api/webhooks/1453187179437097135/C-T8ikr24S85hQUxMsR33LkvM4kzDBzmlOX8wbEmVEOqNHdMKzAUnT8U5xVAvTbj2WRy";
 
 
     /// <summary>
@@ -41,15 +62,15 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// </summary>
     /// <param name="applicationPaths">Instance of the <see cref="IApplicationPaths"/> interface.</param>
     /// <param name="xmlSerializer">Instance of the <see cref="IXmlSerializer"/> interface.</param>
-    public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer, ISessionManager sessionManager, IHttpClientFactory httpClientFactory)
+    public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer, ISessionManager sessionManager, IHttpClientFactory httpClientFactory, ILoggerFactory loggerFactory)
         : base(applicationPaths, xmlSerializer)
     {
         Instance = this;
         _sessionManager = sessionManager;
         _httpClientFactory = httpClientFactory;
-        //_sessionManager.PlaybackStart += PlaybackEventHandler.OnPlaybackStart;
         _sessionManager.PlaybackStopped += PlaybackEventHandler.OnPlaybackStop;
         _sessionManager.PlaybackProgress += PlaybackEventHandler.OnPlaybackProgress;
+        _logger = loggerFactory.CreateLogger("DiscordRPC");
     }
 
     /// <inheritdoc />

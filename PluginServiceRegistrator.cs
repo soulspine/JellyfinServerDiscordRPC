@@ -10,7 +10,7 @@ namespace DiscordRPC
         public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
         {
             serviceCollection.AddHttpClient();
-            serviceCollection.AddSingleton<DiscordManager>();
+            serviceCollection.AddLogging();
         }
     }
 }

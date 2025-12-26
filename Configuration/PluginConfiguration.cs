@@ -13,7 +13,12 @@ namespace DiscordRPC.Configuration
 
     public class UserToken
     {
-        public string UserId { get; set; } = string.Empty;
+        public string Username { get; set; } = string.Empty;
         public string DiscordToken { get; set; } = string.Empty;
+
+        public override string ToString()
+        {
+            return $"{Username}:{DiscordToken}";
+        }
     }
 }
