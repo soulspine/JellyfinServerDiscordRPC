@@ -27,6 +27,10 @@ using DiscordRPC.Utility.Discord;
 using Jellyfin.Database.Implementations.Entities;
 using DiscordRPC.Utility.Discord.GatewayDTO;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Configuration;
+using Newtonsoft.Json;
+using Jellyfin.Data.Enums;
+using MediaBrowser.Controller.Entities;
 
 namespace DiscordRPC.Utility;
 
@@ -44,22 +48,6 @@ public class PlaybackEventHandler
         public long PreviousTick { get; set; }
         public string SessionId { get; set; }
         /// <summary>
-        /// Title of watched media, fetched from Jellyfin so it will be localized based on the server's settings. It's used as a fallback when IBMDb fetch fails.
-        /// </summary>
-        public string Title { get; set; }
-        /// <summary>
-        /// Season name used for validating whether stream event is the one we want to track.
-        /// </summary>
-        public string Season { get; set; }
-        /// <summary>
-        /// Episode name used for validating whether stream event is the one we want to track.
-        /// </summary>
-        public string Episode { get; set; }
-        /// <summary>
-        /// Container for IMDb scraped metadata. It's null only before fetcher job has finished. 
-        /// </summary>
-        public IMDbScraper.MovieMetadata? Metadata { get; set; }
-        /// <summary>
         /// Used to only allow for one Discord Rich Presence update when the stream is started.
         /// It exists because setting presence outright in the first event happenened before IMDb metadata was collected.
         /// </summary>
@@ -72,48 +60,36 @@ public class PlaybackEventHandler
         /// Dedicated object handling the Discord Gateway connection. Lets PlaybackEventHandler update rich presences.
         /// </summary>
         public UserHandler Discord { get; set; }
-        /// <summary>
-        /// It's here only because fetching this data in the constructor synchronously would freeze it for 2-3 seconds. It's basically a background runner.
-        /// </summary>
-        /// <param name="id"></param>
-        private async Task runIMDbFetch(string? id)
+        public bool FetchingImage { get; set; }
+        public string? ImageLink { get; set; }
+        public ulong? ImageMessageId { get; set; }
+        private async Task fetchImage(string imagePath)
         {
-            if (string.IsNullOrEmpty(id)) return;
-            Metadata = await Plugin.Instance!.IMDbScraper.GetImdbMetadata(id);
+            FetchingImage = true;
+            var s = await Plugin.Instance!.DiscordBotHandler.GetMediaProxyForThisImage(imagePath);
+            if (s != null)
+            {
+                ImageLink = s.Item1;
+                ImageMessageId = s.Item2;
+            }
+
+            FetchingImage = false;
         }
-        /// <summary>
-        /// Constructor for the PlaybackInfoContainer class.
-        /// </summary>
-        /// <param name="previousTick">Leaving this as default will most likely result in mislabel it as seek / rewind on the next update. Default: 0</param>
-        /// <param name="title">Default: ""</param>
-        /// <param name="seasonName">Default: ""</param>
-        /// <param name="episodeName">Default: ""</param>
-        /// <param name="imdbId">If specified and valid, Metadata field will have info about this media. Default: null</param>
-        /// <param name="discordToken">Discord token of the that will have their presence updated</param>
-        /// <param name="firstPresenceSetHappened">Whether first presence update request was already sent. Best practice is to leave this as false in the constructor and only update RPC after imdb check was finished (Metadata is not null). Default: false</param>
-        /// <param name="isPaused">Used to keep track of player state. Default: false</param>
         public PlaybackInfoContainer(
             string discordToken,
             string sessionId,
             long previousTick = 0,
-            string title = "",
-            string seasonName = "",
-            string episodeName = "",
-            string? imdbId = null,
             bool firstPresenceSetHappened = false,
-            bool isPaused = false
+            bool isPaused = false,
+            string imagePath = ""
         )
         {
             SessionId = sessionId;
             PreviousTick = previousTick;
-            Title = title;
-            Season = seasonName;
-            Episode = episodeName;
-            Metadata = null;
-            _ = runIMDbFetch(imdbId);
             FirstPresenceSetHappened = firstPresenceSetHappened;
             IsPaused = isPaused;
             Discord = new UserHandler(discordToken);
+            _ = fetchImage(imagePath);
         }
     }
 
@@ -140,9 +116,10 @@ public class PlaybackEventHandler
     public async void OnPlaybackProgress(object? sender, PlaybackProgressEventArgs e)
     {
         var session = e.Session;
-        var item = e.MediaInfo;
+        var item = session.FullNowPlayingItem;
 
-        // TODO ADD CHECKING IF USER HAS A TOKEN SET IN THE CONFIG PAGE
+        // only video for now
+        if (item.MediaType != MediaType.Video) return;
 
         var discordToken = Plugin.Instance!.Configuration.UserTokens.FirstOrDefault(x => x.Username == session.UserName)?.DiscordToken;
 
@@ -153,29 +130,24 @@ public class PlaybackEventHandler
         // Initialize playback info container if it's not occupied yet
         if (!_infoMap.TryGetValue(session.UserId, out info!))
         {
+
             _infoMap[session.UserId] = new PlaybackInfoContainer(
                 discordToken,
                 e.PlaySessionId,
                 e.PlaybackPositionTicks ?? 0,
-                item.Name,
-                item.SeasonName,
-                item.EpisodeTitle,
-                item.GetProviderId(MetadataProvider.Imdb)
+                imagePath: item.GetImagePath(ImageType.Primary)
             );
             info = _infoMap[session.UserId];
         }
 
-        // check for title/season/episode change - playback different from one we have stored
-        if (e.PlaySessionId != info.SessionId)
-        {
-            return; // ignore different sessions
-        }
+        // ignore different sessions
+        if (e.PlaySessionId != info.SessionId) return;
 
         bool updatePaused = false;
         bool updatePlaying = false;
 
         // update presence only 1 time after initial stream start
-        if (!info.FirstPresenceSetHappened && info.Metadata != null && info.Discord.IsReady())
+        if (!info.FirstPresenceSetHappened && info.FetchingImage == false && info.Discord.IsReady())
         {
             updatePlaying = true;
             info.FirstPresenceSetHappened = true;
@@ -202,56 +174,71 @@ public class PlaybackEventHandler
 
         if (updatePaused || updatePlaying)
         {
-            var title = info.Metadata?.Title != null ? info.Metadata.Title : info.Title;
-            var link = info.Metadata?.Id != null ? $"https://www.imdb.com/title/{info.Metadata.Id}" : null;
+            string? details = null;
+            string? detailsUrl = null;
+            string? state = null;
+            string? stateUrl = null;
 
-            // for some reason idk why sometimes it just doesnt get the image, then this comes in handy
-            if (info.Metadata?.Id != null && info.Metadata?.PosterUrl == null)
+            if (item.IndexNumber != null) // series
             {
-                info.Metadata = await Plugin.Instance!.IMDbScraper.GetImdbMetadata(info.Metadata!.Id);
+                var parent = item.GetParent();
+                details = parent.OriginalTitle;
+                detailsUrl = $"https://imdb.com/title/{parent.GetProviderId(MetadataProvider.Imdb)}";
+                int seasonNumber = item.ParentIndexNumber!.Value;
+                int episodeNumber = item.IndexNumber!.Value;
+
+                state = $"S{seasonNumber:D2}E{episodeNumber:D2}";
+                stateUrl = $"https://imdb.com/title/{item.GetProviderId(MetadataProvider.Imdb)}";
+            }
+            else // movie
+            {
+                // TODO add a config option that would let user choose
+                // between localized / original titles
+                details = item.OriginalTitle;
+                detailsUrl = $"https://imdb.com/title/{item.GetProviderId(MetadataProvider.Imdb)}";
             }
 
-            Assets? assets = null;
-            if (info.Metadata?.PosterUrl != null)
+            Assets? assetsObj = null;
+            if (info.ImageLink != null)
             {
-                assets = new Assets(
-                    largeImage: "mp:" + info.Metadata.PosterUrl + "?width=250&height=250",
-                    largeUrl: link
+                assetsObj = new Assets(
+                    largeImage: info.ImageLink,
+                    largeText: item.CommunityRating == null ? null : $"⭐{item.CommunityRating.Value.ToString("0.0", CultureInfo.InvariantCulture)} / 10",
+                    largeUrl: item.RemoteTrailers.FirstOrDefault()?.Url
                 );
             }
 
-            Plugin.Instance!.Logger.LogInformation($"{e.PlaySessionId} {updatePaused} {updatePlaying}");
-
-            if (updatePlaying)
+            Timestamps? timestampsObj = null;
+            if (updatePlaying && e.PlaybackPositionTicks.HasValue && item.RunTimeTicks.HasValue)
             {
-                Timestamps? timestamps = null;
-                if (e.PlaybackPositionTicks.HasValue && item.RunTimeTicks.HasValue)
-                {
-                    long positionMs = (long)TimeSpan.FromTicks(e.PlaybackPositionTicks.Value).TotalMilliseconds;
-                    long durationMs = (long)TimeSpan.FromTicks(item.RunTimeTicks.Value).TotalMilliseconds;
+                long positionMs = (long)TimeSpan.FromTicks(e.PlaybackPositionTicks.Value).TotalMilliseconds;
+                long durationMs = (long)TimeSpan.FromTicks(item.RunTimeTicks.Value).TotalMilliseconds;
 
-                    long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
-                    long startTime = now - positionMs;
-                    long endTime = startTime + durationMs;
-                    timestamps = new Timestamps(startTime, endTime);
-                }
-
-                info.Discord.UpdatePresence(
-                    activityName: title,
-                    detailsUrl: link,
-                    timestampsObj: timestamps,
-                    assetsObj: assets
-                );
+                long startTime = now - positionMs;
+                long endTime = startTime + durationMs;
+                timestampsObj = new Timestamps(startTime, endTime);
             }
-            else if (updatePaused)
+
+            var act = new Activity("Jellyfin")
             {
-                info.Discord.UpdatePresence(
-                    activityName: title,
-                    detailsUrl: link,
-                    assetsObj: assets
-                );
-            }
+                type = ActivityType.Watching,
+                status_display_type = StatusDisplayType.Details,
+                state = state,
+                state_url = stateUrl,
+                details = updatePaused ? "⏸️ " + details : details,
+                details_url = detailsUrl,
+                timestamps = timestampsObj,
+                assets = assetsObj,
+            };
+
+            //Plugin.Instance!.Logger.LogInformation(JsonConvert.SerializeObject(session.FullNowPlayingItem.LatestItemsIndexContainer.Name, Formatting.Indented, new JsonSerializerSettings
+            //{
+            //    NullValueHandling = NullValueHandling.Ignore
+            //}));
+
+            info.Discord.UpdatePresence(act);
         }
     }
 
@@ -263,8 +250,8 @@ public class PlaybackEventHandler
             {
                 return; // ignore different sessions
             }
-            info.Discord.ClearPresence();
             await Task.Delay(300);
+            if (info.ImageMessageId.HasValue) await Plugin.Instance!.DiscordBotHandler.RemoveMessage(info.ImageMessageId.Value);
             info.Discord.Dispose();
             _infoMap.Remove(e.Session.UserId);
         }

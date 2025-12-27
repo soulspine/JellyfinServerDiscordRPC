@@ -81,17 +81,6 @@ public class UserHandler : IDisposable
                 }
             });
         }
-        public readonly static string ActivityClear = JsonConvert.SerializeObject(new
-        {
-            op = 3,
-            d = new
-            {
-                status = "idle",
-                activities = new object[] { },
-                afk = false,
-                since = (long?)null,
-            },
-        });
     }
 
     public bool IsReady()
@@ -109,12 +98,8 @@ public class UserHandler : IDisposable
     }
 
     // todo add state and state_url
-    public void UpdatePresence(
-        string activityName,
-        string? detailsUrl = null,
-        Timestamps? timestampsObj = null,
-        Assets? assetsObj = null
-    )
+    public void UpdatePresence(Activity activity) { UpdatePresence([activity]); }
+    public void UpdatePresence(Activity[] activitiesArr)
     {
         if (!_isReady) return;
 
@@ -124,32 +109,13 @@ public class UserHandler : IDisposable
                 op = 3,
                 d = new
                 {
-                    activities = new[]
-                                    {
-                            new
-                            {
-                                name = "Jellyfin",
-                                details = activityName,
-                                details_url = detailsUrl,
-                                type = 3,
-                                timestamps = timestampsObj,
-                                status_display_type = 2,
-                                assets = assetsObj,
-                            }
-                        },
+                    activities = activitiesArr,
                     status = "idle",
                     afk = true,
                     since = 0,
                 },
             }, new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore })
         );
-    }
-    public void ClearPresence()
-    {
-        if (_isReady)
-        {
-            _ws?.Send(Payloads.ActivityClear);
-        }
     }
 
     private void initializeWebsocket()
@@ -262,11 +228,6 @@ public class UserHandler : IDisposable
             case "SESSIONS_REPLACE":
                 {
                     //Plugin.Log(JsonConvert.SerializeObject(data));
-                    break;
-                }
-            case "MESSAGE_CREATE":
-                {
-                    Plugin.Log(JsonConvert.SerializeObject(data));
                     break;
                 }
         }

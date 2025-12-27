@@ -30,7 +30,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     public override Guid Id => Guid.Parse("ab0a8ab3-ceb0-49b0-980c-087d2a9c320b");
     private const string webhook = "https://discord.com/api/webhooks/1453187179437097135/C-T8ikr24S85hQUxMsR33LkvM4kzDBzmlOX8wbEmVEOqNHdMKzAUnT8U5xVAvTbj2WRy";
     public readonly ILogger Logger;
-    public readonly IMDbScraper IMDbScraper;
     public readonly BotHandler DiscordBotHandler;
     public static void Log(string msg)
     {
@@ -71,8 +70,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         IHttpClientFactory httpClientFactory,
         ILoggerFactory loggerFactory,
         BotHandler botHandler,
-        PlaybackEventHandler playbackEventHandler,
-        IMDbScraper imdbScraper
+        PlaybackEventHandler playbackEventHandler
     )
         : base(applicationPaths, xmlSerializer)
     {
@@ -82,7 +80,6 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         _sessionManager.PlaybackStopped += playbackEventHandler.OnPlaybackStop;
         _sessionManager.PlaybackProgress += playbackEventHandler.OnPlaybackProgress;
         Logger = loggerFactory.CreateLogger("DiscordRPC");
-        IMDbScraper = imdbScraper;
         DiscordBotHandler = botHandler;
 
         var config = Instance.Configuration;

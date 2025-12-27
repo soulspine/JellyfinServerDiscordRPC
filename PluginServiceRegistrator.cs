@@ -17,6 +17,5 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddLogging();
         serviceCollection.AddSingleton<BotHandler>();
         serviceCollection.AddSingleton<PlaybackEventHandler>();
-        serviceCollection.AddSingleton<IMDbScraper>();
     }
 }

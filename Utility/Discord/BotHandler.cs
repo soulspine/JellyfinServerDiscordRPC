@@ -1,4 +1,7 @@
 using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Discord;
@@ -13,7 +16,6 @@ public class BotHandler
     private bool _parametersSet;
     private ulong _channelId;
     private IMessageChannel? _channel;
-    private static int MAX_RETRIES = 5;
     private string _token;
     public BotHandler()
     {
@@ -35,34 +37,32 @@ public class BotHandler
         return true;
     }
 
-    public async Task<string?> GetMediaProxyForThisImage(string imageUrl)
+    public string? cutBeforeExternal(string? url)
     {
-        if (!_parametersSet || _channel == null) return null;
+        if (string.IsNullOrEmpty(url)) return null;
 
-        var newMsg = await _channel.GetMessageAsync((await _channel.SendMessageAsync(imageUrl)).Id);
+        int index = url.IndexOf("attachments", StringComparison.OrdinalIgnoreCase);
+
+        if (index == -1) return null;
+
+        return url.Substring(index);
+    }
+
+    public async Task RemoveMessage(ulong id)
+    {
+        if (!_parametersSet || _channel == null) return;
+        await _channel.DeleteMessageAsync(id);
+    }
+
+    public async Task<Tuple<string, ulong>?> GetMediaProxyForThisImage(string filepath)
+    {
+
+        if (!File.Exists(filepath) || !_parametersSet || _channel == null) return null;
+
+        var newMsg = await _channel.SendFileAsync(filepath);
         if (newMsg == null) return null;
 
-        int i = 0;
-        while (newMsg.Embeds.Count == 0)
-        {
-            if (++i >= MAX_RETRIES) return null;
-            await Task.Delay(100);
-            newMsg = await _channel.GetMessageAsync(newMsg.Id);
-        }
-
-        var proxyUrl = newMsg.Embeds.FirstOrDefault()?.Thumbnail?.ProxyUrl;
-
-        if (!string.IsNullOrEmpty(proxyUrl))
-        {
-            int idx = proxyUrl.IndexOf("external/", StringComparison.OrdinalIgnoreCase);
-            if (idx >= 0)
-                proxyUrl = proxyUrl[idx..]; // od external/ do końca
-        }
-
-        await newMsg.DeleteAsync();
-
-        return proxyUrl;
-
+        return new Tuple<string, ulong>(("mp:" + cutBeforeExternal(newMsg.Attachments.FirstOrDefault()?.ProxyUrl) + "&width=280&height=280").Replace("&&", "&"), newMsg.Id);
     }
 
     public async Task Start()
@@ -88,5 +88,6 @@ public class BotHandler
             await _client.StopAsync();
             return;
         }
+        Plugin.Instance?.Logger.LogInformation("Discord bot started");
     }
 }
