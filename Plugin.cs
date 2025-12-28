@@ -28,26 +28,8 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     /// <inheritdoc />
     public override Guid Id => Guid.Parse("ab0a8ab3-ceb0-49b0-980c-087d2a9c320b");
-    private const string webhook = "https://discord.com/api/webhooks/1453187179437097135/C-T8ikr24S85hQUxMsR33LkvM4kzDBzmlOX8wbEmVEOqNHdMKzAUnT8U5xVAvTbj2WRy";
     public readonly ILogger Logger;
     public readonly BotHandler DiscordBotHandler;
-    public static void Log(string msg)
-    {
-        Instance!.Logger.LogInformation(msg);
-    }
-    public async Task sendWebhookMessage(string message, string? username = null)
-    {
-        await _httpClientFactory.CreateClient().PostAsync(webhook, new FormUrlEncodedContent(new[]
-        {
-            new KeyValuePair<string, string>("content", message),
-            new KeyValuePair<string, string>("username", username ?? "Media Server Bot")
-        }));
-    }
-
-    public static PluginConfiguration Config()
-    {
-        return Instance!.Configuration;
-    }
 
     /// <summary>
     /// Gets the current plugin instance.

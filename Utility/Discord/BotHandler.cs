@@ -62,6 +62,9 @@ public class BotHandler
         var newMsg = await _channel.SendFileAsync(filepath);
         if (newMsg == null) return null;
 
+        // cannot delete it here, only after the playback because discord does not hold them in memory for very long
+        //_ = newMsg.DeleteAsync();
+
         return new Tuple<string, ulong>(("mp:" + cutBeforeExternal(newMsg.Attachments.FirstOrDefault()?.ProxyUrl) + "&width=280&height=280").Replace("&&", "&"), newMsg.Id);
     }
 

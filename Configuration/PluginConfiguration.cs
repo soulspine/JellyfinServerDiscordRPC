@@ -7,8 +7,7 @@ namespace DiscordRPC.Configuration
     {
         public string DiscordBotToken { get; set; } = string.Empty;
         public string DiscordImagesChannelId { get; set; } = string.Empty;
-        public string LanguageCode { get; set; } = "en";
-        // List of user token entries (UserId + DiscordToken)
+        public bool LocalizedNames { get; set; } = false;
         public List<UserToken> UserTokens { get; set; } = new List<UserToken>();
     }
 

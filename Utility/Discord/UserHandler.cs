@@ -17,6 +17,7 @@ using System.ComponentModel.DataAnnotations;
 using MediaBrowser.Controller.Entities;
 using System.Linq;
 using DiscordRPC.Utility.Discord.GatewayDTO;
+using Microsoft.Extensions.Logging;
 
 
 namespace DiscordRPC.Utility.Discord;
@@ -134,7 +135,7 @@ public class UserHandler : IDisposable
         if (_ws != null && _ws.IsRunning)
         {
             _ws.Send(Payloads.Heartbeat(_sequenceNum));
-            Plugin.Log("Heartbeat sent");
+            Plugin.Instance!.Logger.LogDebug("Heartbeat sent");
         }
     }
 
@@ -150,16 +151,16 @@ public class UserHandler : IDisposable
 
     private async Task OnConnect(ReconnectionInfo info)
     {
-        Plugin.Log("Ws connected");
+        Plugin.Instance!.Logger.LogDebug("Ws connected");
         if (_cachedUrl == INITIAL_URL) //definitely first connect
         {
             _ws?.Send(Payloads.Identify(_token));
-            Plugin.Log("Sent Identify Payload");
+            Plugin.Instance!.Logger.LogDebug("Sent Identify Payload");
         }
         else // reconnect
         {
             _ws?.Send(Payloads.Resume(_token, _session_id, _sequenceNum!.Value));
-            Plugin.Log("Sent Resume Payload");
+            Plugin.Instance!.Logger.LogDebug("Sent Resume Payload");
         }
 
     }
@@ -169,10 +170,10 @@ public class UserHandler : IDisposable
         if (info.CloseStatus == WebSocketCloseStatus.NormalClosure) return; // user-invoked one
 
         _isReady = false;
-        Plugin.Log("Ws disconnected");
+        Plugin.Instance!.Logger.LogDebug("Ws disconnected");
         if (!_isDisposed)
         {
-            Plugin.Log("Reconnecting...");
+            Plugin.Instance!.Logger.LogDebug("Reconnecting...");
             initializeWebsocket();
         }
     }
@@ -187,7 +188,7 @@ public class UserHandler : IDisposable
         string? eventName = j.t;
         int? sequenceNum = j.s;
 
-        Plugin.Log($"Ws message: {opCode} {eventName} {sequenceNum}");
+        Plugin.Instance!.Logger.LogDebug($"Ws message: {opCode} {eventName} {sequenceNum}");
 
         if (sequenceNum.HasValue) _sequenceNum = sequenceNum.Value;
 
@@ -227,7 +228,7 @@ public class UserHandler : IDisposable
                 }
             case "SESSIONS_REPLACE":
                 {
-                    //Plugin.Log(JsonConvert.SerializeObject(data));
+                    //Plugin.Instance!.Logger.LogDebug(JsonConvert.SerializeObject(data));
                     break;
                 }
         }
