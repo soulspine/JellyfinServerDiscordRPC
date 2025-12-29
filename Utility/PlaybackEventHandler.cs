@@ -31,23 +31,122 @@ using Microsoft.Extensions.Configuration;
 using Newtonsoft.Json;
 using Jellyfin.Data.Enums;
 using MediaBrowser.Controller.Entities;
+using System.Collections.Concurrent;
+using Polly.Caching;
+using System.Diagnostics.CodeAnalysis;
 
 namespace DiscordRPC.Utility;
 
 public class PlaybackEventHandler
 {
+    public static string imdbLink(string id)
+    {
+        return $"https://imdb.com/title/{id}";
+    }
+
+    private class UserInfoContainer
+    {
+        /// <summary>
+        /// Dedicated object handling the Discord Gateway connection. Lets PlaybackEventHandler update rich presences.
+        /// </summary>
+        public readonly UserHandler Discord;
+        public readonly ConcurrentDictionary<string, PlaybackInfoContainer> Sessions;
+        public UserInfoContainer(string discordToken)
+        {
+            Discord = new UserHandler(discordToken);
+            Sessions = new();
+        }
+
+        /// <summary>
+        /// Creates an array of Activity objects based on contents of Sessions dictionary
+        /// </summary>
+        public void updatePresence()
+        {
+            List<Activity> acts = new();
+            int i = 0; // used to add i amount of 0width charactersto the name so they are unique and discord allows them
+            var sessionsSnapshot = Sessions.Values.ToArray();
+            foreach (var playbackInfo in sessionsSnapshot)
+            {
+                string? details = null;
+                string? detailsUrl = null;
+                string? state = null;
+                string? stateUrl = null;
+
+                BaseItem playbackItem = playbackInfo.PlaybackItem;
+                BaseItem mainItem = playbackItem;
+
+                if (playbackItem.IndexNumber.HasValue && playbackItem.ParentIndexNumber.HasValue) // series
+                {
+                    // we set the main series as main item, while playbackItem is the specific episode
+                    mainItem = playbackItem.GetParent();
+                    state = $"S{playbackItem.ParentIndexNumber.Value:D2}E{playbackItem.IndexNumber.Value:D2}";
+                    var episodeId = playbackItem.GetProviderId(MetadataProvider.Imdb);
+                    if (!string.IsNullOrEmpty(episodeId)) stateUrl = imdbLink(episodeId);
+                }
+
+                // series / movie title
+                details = mainItem.Name;
+
+                // we check if there is an original title available and apply it if config has localized names turned off
+                if (!string.IsNullOrEmpty(mainItem.OriginalTitle) && !Plugin.Instance!.Configuration.LocalizedNames)
+                {
+                    details = mainItem.OriginalTitle;
+                }
+
+                var mainId = mainItem.GetProviderId(MetadataProvider.Imdb);
+                if (!string.IsNullOrEmpty(mainId)) detailsUrl = imdbLink(mainId);
+
+                Assets? assetsObj = null;
+                if (playbackInfo.ImageLink != null)
+                {
+                    assetsObj = new Assets(
+                        largeImage: playbackInfo.ImageLink,
+                        largeText: playbackItem.CommunityRating == null ? null : $"⭐{playbackItem.CommunityRating.Value.ToString("0.0", CultureInfo.InvariantCulture)} / 10"
+                    );
+                }
+
+                Timestamps? timestampsObj = null;
+                if (!playbackInfo.IsPaused && playbackItem.RunTimeTicks.HasValue)
+                {
+                    long positionMs = (long)TimeSpan.FromTicks(playbackInfo.PreviousTick).TotalMilliseconds;
+                    long durationMs = (long)TimeSpan.FromTicks(playbackItem.RunTimeTicks.Value).TotalMilliseconds;
+
+                    long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+                    long startTime = now - positionMs;
+                    long endTime = startTime + durationMs;
+                    timestampsObj = new Timestamps(startTime, endTime);
+                }
+
+                acts.Add(new Activity("Jellyfin" + new string('\u200B', i++))
+                {
+                    type = ActivityType.Watching,
+                    status_display_type = StatusDisplayType.Details,
+                    state = state,
+                    state_url = stateUrl,
+                    details = playbackInfo.IsPaused ? "[⏸] " + details : details,
+                    details_url = detailsUrl,
+                    timestamps = timestampsObj,
+                    assets = assetsObj,
+                });
+            }
+
+            Discord.UpdatePresence(acts.ToArray());
+        }
+    }
+
     /// <summary>
     /// Class representing info and fields needed to properly validate and track stream events.
     /// \\TODO: Make this handle multiple streams since discord gateway allows to specify >1 activity per session/
     /// </summary>
-    public class PlaybackInfoContainer
+    private class PlaybackInfoContainer
     {
+        public BaseItem PlaybackItem { get; set; }
         /// <summary>
         /// Gets updated on every playback event. Used to detect skips and rewinds.
         /// </summary>
         public long PreviousTick { get; set; }
         public long PreviousTimestamp { get; set; }
-        public string SessionId { get; set; }
         /// <summary>
         /// Used to only allow for one Discord Rich Presence update when the stream is started.
         /// It exists because setting presence outright in the first event happenened before IMDb metadata was collected.
@@ -57,14 +156,10 @@ public class PlaybackEventHandler
         /// Whether the player is paused, used to track changes in playback state.
         /// </summary>
         public bool IsPaused { get; set; }
-        /// <summary>
-        /// Dedicated object handling the Discord Gateway connection. Lets PlaybackEventHandler update rich presences.
-        /// </summary>
-        public UserHandler Discord { get; set; }
         public bool FetchingImage { get; set; }
         public string? ImageLink { get; set; }
         public ulong? ImageMessageId { get; set; }
-        private async Task fetchImage(string imagePath)
+        private async Task tryFetchImage(string imagePath)
         {
             FetchingImage = true;
             var s = await Plugin.Instance!.DiscordBotHandler.GetMediaProxyForThisImage(imagePath);
@@ -77,8 +172,7 @@ public class PlaybackEventHandler
             FetchingImage = false;
         }
         public PlaybackInfoContainer(
-            string discordToken,
-            string sessionId,
+            BaseItem playbackItem,
             long previousTick = 0,
             long previousTimestamp = 0,
             bool firstPresenceSetHappened = false,
@@ -86,13 +180,12 @@ public class PlaybackEventHandler
             string imagePath = ""
         )
         {
-            SessionId = sessionId;
+            PlaybackItem = playbackItem;
             PreviousTick = previousTick;
             PreviousTimestamp = previousTimestamp;
             FirstPresenceSetHappened = firstPresenceSetHappened;
             IsPaused = isPaused;
-            Discord = new UserHandler(discordToken);
-            _ = fetchImage(imagePath);
+            _ = tryFetchImage(imagePath);
         }
     }
 
@@ -102,13 +195,15 @@ public class PlaybackEventHandler
     /// ignore multiple sessions and only track the first one that was started.
     /// Freeing it up will result in the ability to track a new session for that user.
     /// </summary>
-    private readonly Dictionary<Guid, PlaybackInfoContainer> _infoMap = new Dictionary<Guid, PlaybackInfoContainer>();
+    private readonly ConcurrentDictionary<Guid, UserInfoContainer> _userMap = new();
     /// <summary>
     /// This method is called when playback is updated (every second and on pause/resume).
     /// It is responsible for updating playback info (and discord RPC) by detecting skips, rewinds and pauses
     /// </summary>
     /// <param name="sender"></param>
     /// <param name="e"></param>
+    private int _seekTolerance = 3; // in seconds, that means if abs of time discrepency is higher than this value, it is considered as seek
+
     public async void OnPlaybackProgress(object? sender, PlaybackProgressEventArgs e)
     {
         var session = e.Session;
@@ -117,143 +212,97 @@ public class PlaybackEventHandler
         // only video for now
         if (item.MediaType != MediaType.Video) return;
 
-        var discordToken = Plugin.Instance!.Configuration.UserTokens.FirstOrDefault(x => x.Username == session.UserName)?.DiscordToken;
+        string? discordToken = Plugin.Instance!.Configuration.UserTokens.FirstOrDefault(x => x.Username == session.UserName)?.DiscordToken;
 
+        // return if this user does not have a token in the config
         if (string.IsNullOrEmpty(discordToken)) return;
 
-        PlaybackInfoContainer info;
+        UserInfoContainer userInfo;
 
-        // Initialize playback info container if it's not occupied yet
-        if (!_infoMap.TryGetValue(session.UserId, out info!))
+        if (!_userMap.TryGetValue(session.UserId, out userInfo!))
         {
+            // initialize a user map entry if this user was not there before
+            userInfo = _userMap[session.UserId] = new(discordToken);
+        }
 
-            _infoMap[session.UserId] = new PlaybackInfoContainer(
-                discordToken,
-                e.PlaySessionId,
-                e.PlaybackPositionTicks ?? 0,
+        Plugin.Instance!.Logger.LogInformation(userInfo.Sessions.Values.Count.ToString());
+
+        PlaybackInfoContainer playbackInfo;
+        if (!userInfo.Sessions.TryGetValue(e.PlaySessionId, out playbackInfo!))
+        {
+            // the same thing
+            // initialize a session playback entry if it was not there yet
+            playbackInfo = userInfo.Sessions[e.PlaySessionId] = new(
+                playbackItem: item,
+                previousTick: e.PlaybackPositionTicks ?? 0,
                 previousTimestamp: DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 imagePath: item.GetImagePath(ImageType.Primary)
             );
-            info = _infoMap[session.UserId];
         }
 
-        // ignore different sessions
-        if (e.PlaySessionId != info.SessionId) return;
+        // wait until image is fetched
+        if (playbackInfo.FetchingImage) return;
 
-        bool updatePaused = false;
-        bool updatePlaying = false;
+        bool updatePresence = false;
 
         // update presence only 1 time after initial stream start
-        if (!info.FirstPresenceSetHappened && info.FetchingImage == false && info.Discord.IsReady())
+        if (!playbackInfo.FirstPresenceSetHappened && userInfo.Discord.IsReady())
         {
-            updatePlaying = true;
-            info.FirstPresenceSetHappened = true;
+            updatePresence = true;
+            playbackInfo.FirstPresenceSetHappened = true;
         }
 
-        //check for pause but only on the first tick - it repeats itself every once in a while
-        if (e.IsPaused && !info.IsPaused) updatePaused = true;
+        //check for pause / unpause
+        if ((e.IsPaused && !playbackInfo.IsPaused) || (!e.IsPaused && playbackInfo.IsPaused)) updatePresence = true;
 
-        //check for unpause but only on the first tick since they happen once every second
-        if (!e.IsPaused && info.IsPaused) updatePlaying = true;
-
-        info.IsPaused = e.IsPaused;
-
-        if (e.PlaybackPositionTicks.HasValue && !info.IsPaused)
+        if (e.PlaybackPositionTicks.HasValue && !playbackInfo.IsPaused)
         {
-            var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            var deltaTicks = e.PlaybackPositionTicks.Value - info.PreviousTick;
-            var deltaTimeMs = nowMs - info.PreviousTimestamp;
+            long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
-            var speed = (double)deltaTicks / deltaTimeMs;
-            var expectedSpeed = TimeSpan.TicksPerSecond / 1000.0; // ticks/ms
+            long playbackElapsedMs = (e.PlaybackPositionTicks.Value - playbackInfo.PreviousTick) / TimeSpan.TicksPerMillisecond;
 
-            if (Math.Abs(speed) > expectedSpeed * 3)
+            long realElapsedMs = now - playbackInfo.PreviousTimestamp;
+
+            long drift = Math.Abs(playbackElapsedMs - realElapsedMs);
+
+            if (drift > _seekTolerance * 1000)
             {
-                updatePlaying = true;
+                updatePresence = true;
+                Plugin.Instance!.Logger.LogInformation($"SEEK! drift={drift}ms");
             }
-
-            info.PreviousTick = e.PlaybackPositionTicks.Value;
-            info.PreviousTimestamp = nowMs;
         }
 
+        // update the state
+        playbackInfo.IsPaused = e.IsPaused;
+        playbackInfo.PreviousTick = e.PlaybackPositionTicks ?? 0;
+        playbackInfo.PreviousTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        playbackInfo.PlaybackItem = item;
 
-        if (updatePaused || updatePlaying)
+        if (updatePresence)
         {
-            string? details = null;
-            string? detailsUrl = null;
-            string? state = null;
-            string? stateUrl = null;
-
-            BaseItem mainItem = item;
-
-            if (item.IndexNumber != null) // series
-            {
-                mainItem = item.GetParent();
-                state = $"S{item.ParentIndexNumber!.Value:D2}E{item.IndexNumber!.Value:D2}";
-                stateUrl = $"https://imdb.com/title/{item.GetProviderId(MetadataProvider.Imdb)}";
-            }
-
-            details = Plugin.Instance!.Configuration.LocalizedNames ? mainItem.Name : mainItem.OriginalTitle;
-            detailsUrl = $"https://imdb.com/title/{mainItem.GetProviderId(MetadataProvider.Imdb)}";
-
-            Assets? assetsObj = null;
-            if (info.ImageLink != null)
-            {
-                assetsObj = new Assets(
-                    largeImage: info.ImageLink,
-                    largeText: item.CommunityRating == null ? null : $"⭐{item.CommunityRating.Value.ToString("0.0", CultureInfo.InvariantCulture)} / 10",
-                    largeUrl: item.RemoteTrailers.FirstOrDefault()?.Url
-                );
-            }
-
-            Timestamps? timestampsObj = null;
-            if (updatePlaying && e.PlaybackPositionTicks.HasValue && item.RunTimeTicks.HasValue)
-            {
-                long positionMs = (long)TimeSpan.FromTicks(e.PlaybackPositionTicks.Value).TotalMilliseconds;
-                long durationMs = (long)TimeSpan.FromTicks(item.RunTimeTicks.Value).TotalMilliseconds;
-
-                long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-
-                long startTime = now - positionMs;
-                long endTime = startTime + durationMs;
-                timestampsObj = new Timestamps(startTime, endTime);
-            }
-
-            var act = new Activity("Jellyfin")
-            {
-                type = ActivityType.Watching,
-                status_display_type = StatusDisplayType.Details,
-                state = state,
-                state_url = stateUrl,
-                details = updatePaused ? "[⏸] " + details : details,
-                details_url = detailsUrl,
-                timestamps = timestampsObj,
-                assets = assetsObj,
-            };
-
-            //Plugin.Instance!.Logger.LogInformation(JsonConvert.SerializeObject(session.FullNowPlayingItem.LatestItemsIndexContainer.Name, Formatting.Indented, new JsonSerializerSettings
-            //{
-            //    NullValueHandling = NullValueHandling.Ignore
-            //}));
-
-            info.Discord.UpdatePresence(act);
+            userInfo.updatePresence();
         }
     }
 
     public async void OnPlaybackStop(object? sender, PlaybackProgressEventArgs e)
     {
-        if (_infoMap.TryGetValue(e.Session.UserId, out var info))
+        if (!_userMap.TryGetValue(e.Session.UserId, out var userInfo)) return;
+
+        if (!userInfo.Sessions.TryRemove(e.PlaySessionId, out var playbackInfo)) return;
+
+        if (playbackInfo.ImageMessageId.HasValue)
         {
-            if (info.SessionId != e.PlaySessionId)
-            {
-                return; // ignore different sessions
-            }
-            // they have to be deleted at the end
-            if (info.ImageMessageId.HasValue) await Plugin.Instance!.DiscordBotHandler.RemoveMessage(info.ImageMessageId.Value);
-            await Task.Delay(300);
-            info.Discord.Dispose();
-            _infoMap.Remove(e.Session.UserId);
+            _ = Plugin.Instance!.DiscordBotHandler.RemoveMessage(playbackInfo.ImageMessageId.Value);
         }
+
+        Plugin.Instance!.Logger.LogInformation("Koniec");
+        if (userInfo.Sessions.IsEmpty)
+        {
+            await Task.Delay(300);
+            userInfo.Discord.Dispose();
+            _userMap.TryRemove(e.Session.UserId, out _);
+        }
+        else userInfo.updatePresence();
     }
 
 }
