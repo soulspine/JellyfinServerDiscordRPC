@@ -59,8 +59,9 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         Instance = this;
         _sessionManager = sessionManager;
         _httpClientFactory = httpClientFactory;
-        _sessionManager.PlaybackStopped += playbackEventHandler.OnPlaybackStop;
-        _sessionManager.PlaybackProgress += playbackEventHandler.OnPlaybackProgress;
+        _sessionManager.PlaybackProgress += async (s, e) => { await playbackEventHandler.OnPlaybackProgress(s, e); };
+        _sessionManager.PlaybackStopped += async (s, e) => { await playbackEventHandler.OnPlaybackStop(s, e); };
+
         Logger = loggerFactory.CreateLogger("DiscordRPC");
         DiscordBotHandler = botHandler;
 

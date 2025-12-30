@@ -34,11 +34,44 @@ using MediaBrowser.Controller.Entities;
 using System.Collections.Concurrent;
 using Polly.Caching;
 using System.Diagnostics.CodeAnalysis;
+using System.Threading;
 
 namespace DiscordRPC.Utility;
 
-public class PlaybackEventHandler
+public class PlaybackEventHandler : IDisposable
 {
+    public PlaybackEventHandler()
+    {
+        _cleanupTask = Task.Run(async () =>
+        {
+            while (!_cleanupCts.Token.IsCancellationRequested)
+            {
+                try
+                {
+                    cleanupDeadSessions();
+                    await Task.Delay(5000, _cleanupCts.Token);
+                }
+                catch (TaskCanceledException) { }
+                catch (Exception ex)
+                {
+                    Plugin.Instance!.Logger.LogError(ex, "Cleanup loop error");
+                }
+            }
+        });
+    }
+
+    public void Dispose()
+    {
+        _cleanupCts.Cancel();
+        try
+        {
+            _cleanupTask?.Wait();
+        }
+        catch { }
+    }
+
+    private const int _seekTolerance = 3; // in seconds, that means if abs of time discrepency is higher than this value, it is considered as seek
+    private const int PlaybackTimeout = 15;
     public static string imdbLink(string id)
     {
         return $"https://imdb.com/title/{id}";
@@ -202,9 +235,60 @@ public class PlaybackEventHandler
     /// </summary>
     /// <param name="sender"></param>
     /// <param name="e"></param>
-    private int _seekTolerance = 3; // in seconds, that means if abs of time discrepency is higher than this value, it is considered as seek
+    private CancellationTokenSource _cleanupCts = new();
+    private Task? _cleanupTask;
 
-    public async void OnPlaybackProgress(object? sender, PlaybackProgressEventArgs e)
+    private void stopSession(Guid userId, string playSessionId, string reason)
+    {
+        if (!_userMap.TryGetValue(userId, out var userInfo))
+            return;
+
+        if (!userInfo.Sessions.TryRemove(playSessionId, out var playbackInfo))
+            return;
+
+        Plugin.Instance!.Logger.LogInformation(
+            $"Stopping session {playSessionId} ({reason})");
+
+        if (playbackInfo.ImageMessageId.HasValue)
+        {
+            _ = Plugin.Instance!.DiscordBotHandler
+                .RemoveMessage(playbackInfo.ImageMessageId.Value);
+        }
+
+        if (userInfo.Sessions.IsEmpty)
+        {
+            userInfo.Discord.Dispose();
+            _userMap.TryRemove(userId, out _);
+        }
+        else
+        {
+            userInfo.updatePresence();
+        }
+    }
+
+
+    private void cleanupDeadSessions()
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+        foreach (var userPair in _userMap)
+        {
+            var userInfo = userPair.Value;
+
+            foreach (var sessionPair in userInfo.Sessions)
+            {
+                var playbackInfo = sessionPair.Value;
+
+                if (now - playbackInfo.PreviousTimestamp > PlaybackTimeout * TimeSpan.MillisecondsPerSecond)
+                {
+                    stopSession(userPair.Key, sessionPair.Key, "Timeout");
+                }
+            }
+        }
+    }
+
+
+    public async Task OnPlaybackProgress(object? sender, PlaybackProgressEventArgs e)
     {
         var session = e.Session;
         var item = session.FullNowPlayingItem;
@@ -284,25 +368,15 @@ public class PlaybackEventHandler
         }
     }
 
-    public async void OnPlaybackStop(object? sender, PlaybackProgressEventArgs e)
+    public Task OnPlaybackStop(object? sender, PlaybackProgressEventArgs e)
     {
-        if (!_userMap.TryGetValue(e.Session.UserId, out var userInfo)) return;
+        stopSession(
+            e.Session.UserId,
+            e.PlaySessionId,
+            "PlaybackStopped"
+        );
 
-        if (!userInfo.Sessions.TryRemove(e.PlaySessionId, out var playbackInfo)) return;
-
-        if (playbackInfo.ImageMessageId.HasValue)
-        {
-            _ = Plugin.Instance!.DiscordBotHandler.RemoveMessage(playbackInfo.ImageMessageId.Value);
-        }
-
-        Plugin.Instance!.Logger.LogInformation("Koniec");
-        if (userInfo.Sessions.IsEmpty)
-        {
-            await Task.Delay(300);
-            userInfo.Discord.Dispose();
-            _userMap.TryRemove(e.Session.UserId, out _);
-        }
-        else userInfo.updatePresence();
+        return Task.CompletedTask;
     }
 
 }
