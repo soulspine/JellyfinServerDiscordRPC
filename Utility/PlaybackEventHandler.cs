@@ -108,10 +108,15 @@ public class PlaybackEventHandler : IDisposable
                 BaseItem playbackItem = playbackInfo.PlaybackItem;
                 BaseItem mainItem = playbackItem;
 
-                if (playbackItem.IndexNumber.HasValue && playbackItem.ParentIndexNumber.HasValue) // series
+                if (playbackItem.IndexNumber.HasValue && playbackItem.ParentIndexNumber.HasValue) // episode
                 {
-                    // we set the main series as main item, while playbackItem is the specific episode
-                    mainItem = playbackItem.GetParent();
+                    BaseItem? parent = mainItem.GetParent();
+                    while (parent != null && !parent.IsTopParent)
+                    {
+                        mainItem = parent;
+                        parent = mainItem.GetParent();
+                    }
+
                     state = $"S{playbackItem.ParentIndexNumber.Value:D2}E{playbackItem.IndexNumber.Value:D2}";
                     var episodeId = playbackItem.GetProviderId(MetadataProvider.Imdb);
                     if (!string.IsNullOrEmpty(episodeId)) stateUrl = imdbLink(episodeId);
@@ -309,8 +314,6 @@ public class PlaybackEventHandler : IDisposable
             userInfo = _userMap[session.UserId] = new(discordToken);
         }
 
-        Plugin.Instance!.Logger.LogInformation(userInfo.Sessions.Values.Count.ToString());
-
         PlaybackInfoContainer playbackInfo;
         if (!userInfo.Sessions.TryGetValue(e.PlaySessionId, out playbackInfo!))
         {
@@ -352,7 +355,6 @@ public class PlaybackEventHandler : IDisposable
             if (drift > _seekTolerance * 1000)
             {
                 updatePresence = true;
-                Plugin.Instance!.Logger.LogInformation($"SEEK! drift={drift}ms");
             }
         }
 
