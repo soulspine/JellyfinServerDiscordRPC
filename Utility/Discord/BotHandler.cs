@@ -10,7 +10,7 @@ using Microsoft.Extensions.Logging;
 
 namespace DiscordRPC.Utility.Discord;
 
-public class BotHandler
+public class BotHandler : IDisposable
 {
     private readonly DiscordSocketClient _client;
     private bool _parametersSet;
@@ -24,6 +24,11 @@ public class BotHandler
         {
             GatewayIntents = GatewayIntents.GuildMessages | GatewayIntents.MessageContent,
         });
+    }
+
+    public void Dispose()
+    {
+        _client.Dispose();
     }
 
     public bool SetParameters(string token, ulong channelId)
