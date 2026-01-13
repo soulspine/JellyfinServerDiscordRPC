@@ -1,0 +1,21 @@
+[
+    {
+        "name": "Discord RPC",
+        "guid": "ab0a8ab3-ceb0-49b0-980c-087d2a9c320b",
+        "description": "Full description at https://github.com/soulspine/JellyfinServerDiscordRPC",
+        "overview": "Server-sided Discord Rich Presence integration for Jellyfin.",
+        "owner": "soulspine",
+        "category": "General",
+        "imageUrl": "https://raw.githubusercontent.com/soulspine/JellyfinServerDiscordRPC/master/logo.png",
+        "versions": [
+            {
+                "changelog": "Initial release.",
+                "version": "1.0.0.0",
+                "targetAbi": "10.11.3.0",
+                "sourceUrl": "https://github.com/soulspine/JellyfinServerDiscordRPC/releases/download/1.0.0/discordRPC-1.0.0.zip",
+                "checksum": "159ba96dfcf9083dd1e998b03240c164",
+                "timestamp": "2026-01-13T10:06:00"
+            }
+        ]
+    }
+]
