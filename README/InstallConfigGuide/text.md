@@ -13,7 +13,19 @@ This guide will walk you through the steps necessary to install and configure th
 Make sure you have a working Jellyfin media server installation. You can find the official installation guide [here](https://jellyfin.org/docs/general/installation/). Plugin was built and tested with Jellyfin version 10.11.3 so having at least that version is recommended.
 
 ## Step 2: Install the plugin
-TODO
+1. Go into Jellyfin's Dashboard, navigate to `Plugins` and press `Manage Repositories`. \
+![Manage Repositories button](manageReposButton.png)
+2. Then press on `+ New Repository` and paste the following URL:
+    ```
+    https://raw.githubusercontent.com/soulspine/JellyfinServerDiscordRPC/refs/heads/master/manifest.json
+    ```
+
+3. Confirm by pressing `Add`. \
+![Add Repository dialog](newRepo.png)
+4. Go back to the `Plugins` page and switch to the `Available` tab. You should see the `Discord Rich Presence` plugin in the list now. Select it. \
+![Available Plugins tab](pluginTab.png)
+5. Press `Install` and after it finishes, go back to `Dashboard` and restart the server to complete the installation. \
+![Install Plugin button](install.png)
 
 ## Step 3: Create a Discord Server with a dedicated text channel
 1. Open Discord and create a new server by clicking the `+` button at the bottom of the server list. \
