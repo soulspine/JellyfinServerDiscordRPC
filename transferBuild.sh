@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# THIS IS JUST A HELPER SCRIPT FOR ME SPECIFICALLY
+
 # ------ CONFIG ------
 SERVER_ALIAS="jellyfin"
 REMOTE_PLUGIN_DIR="/home/soulspine/.var/app/org.jellyfin.JellyfinServer/data/jellyfin/plugins/DiscordRPC"
@@ -20,7 +22,6 @@ fi
 
 echo "Build completed. Transferring files to server..."
 
-# Upewnij się, że folder docelowy istnieje
 mkdir -p "$REMOTE_PLUGIN_DIR"
 
 if [ "$SERVER_ALIAS" == "localhost" ]; then
@@ -29,7 +30,6 @@ if [ "$SERVER_ALIAS" == "localhost" ]; then
     rm -rf "$REMOTE_PLUGIN_DIR"
     mkdir -p "$REMOTE_PLUGIN_DIR"
 
-    # Kopiujemy WSZYSTKIE dll z folderu bin
     cp "$LOCAL_BIN_PATH"/*.dll "$REMOTE_PLUGIN_DIR/"
     
     echo "All DLLs copied locally to $REMOTE_PLUGIN_DIR"
@@ -38,12 +38,10 @@ if [ "$SERVER_ALIAS" == "localhost" ]; then
     exit 0
 fi
 
-# Kopiowanie dla zdalnego serwera (scp obsługuje wiele plików przez maskę)
 scp "$LOCAL_BIN_PATH"/*.dll "$SERVER_ALIAS:$REMOTE_PLUGIN_DIR/"
 
 if [ $? -eq 0 ]; then
     echo "Files transferred correctly."
-    # Zmieniamy uprawnienia dla wszystkich plików dll w folderze
     ssh -t "$SERVER_ALIAS" "chown -R jellyfin:jellyfin $REMOTE_PLUGIN_DIR/ && chmod 644 $REMOTE_PLUGIN_DIR/*.dll && systemctl restart jellyfin"
     echo "Done!"
 else

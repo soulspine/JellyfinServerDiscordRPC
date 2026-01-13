@@ -1,21 +1,9 @@
 using System;
 using System.Net.WebSockets;
-using System.Text;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Jellyfin.Extensions;
-using Microsoft.AspNetCore.Authentication.BearerToken;
 using Websocket.Client;
 using Newtonsoft.Json;
-using System.Text.Json.Nodes;
-using System.Diagnostics.CodeAnalysis;
-using Microsoft.AspNetCore.DataProtection.XmlEncryption;
-using J2N;
-using System.Runtime.Serialization;
-using System.ComponentModel.DataAnnotations;
-using MediaBrowser.Controller.Entities;
-using System.Linq;
 using DiscordRPC.Utility.Discord.GatewayDTO;
 using Microsoft.Extensions.Logging;
 

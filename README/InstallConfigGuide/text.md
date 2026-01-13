@@ -45,12 +45,14 @@ TODO
 5. While still in the `Bot` tab, find the `Reset Token` button and click it to generate your bot token. Copy it into the plugin's configuration and press `Save settings`. \
 ![Discord Application Bot Token](tokenConfig.png)
 
-6. Go back to the `Installation` tab and copy the link generated under `Install Link`. We will use it to add the bot to our server.
-
 ## Step 5: Adding the bot to the server
-1. Go to the link copied in the previous step. It should open a dialog asking you to select a server. Choose your desired server (in this case the one created in Step 3) from the dropdown and press `Continue`. \
+1. Go back to the `Installation` tab and copy the link generated under `Install Link`. We will use it to add the bot to our server. \
+![Bot install link](inviteLink.png)
+
+
+2. Go to the link copied in the previous step. It should open a dialog asking you to select a server. Choose your desired server (in this case the one created in Step 3) from the dropdown and press `Continue`. \
 ![Add bot to server step 1](addBot1.png)
-2. On the next page, make sure that the bot has the `Attach Files` permission enabled and press `Authorise`. \
+3. On the next page, make sure that the bot has the `Attach Files` permission enabled and press `Authorise`. \
 ![Add bot to server step 2](addBot2.png)
 
 ## Step 6: Getting the discord token
@@ -59,7 +61,7 @@ TODO
 ![Open developer tools](devTools1.png)
 3. Switch to mobile view by clicking the mobile icon (top right corner on firefox based browsers). \
 ![Switch to mobile view](devTools2.png)
-4. Open the `Network`, put `typing` into the filter field and reload the page. \
+4. Open the `Network` tab, put `typing` into the filter field and reload the page. \
 ![Open network tab and filter](devTools3.png)
 5. Open any text channel and start typing something to trigger a `typing` event. You should see a new entry appear in the network tab. Click it and open the `Headers` tab. There you will find a `Authorization` header containing your token. Copy it and paste it into the plugin's configuration next to desired user's name. Do NOT share this token with anyone else. It allows them to get full access to your Discord account.\
 ![Trigger typing event](devTools4.png)

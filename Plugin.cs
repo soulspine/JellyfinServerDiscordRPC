@@ -9,12 +9,8 @@ using MediaBrowser.Common.Plugins;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
 using MediaBrowser.Controller.Session;
-using MediaBrowser.Controller.Library;
-using MediaBrowser.Model.Entities;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using DiscordRPC.Utility.Discord;
-using Polly.Fallback;
 
 namespace DiscordRPC;
 

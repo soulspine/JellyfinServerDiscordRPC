@@ -1,39 +1,16 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.Net.Http;
-using DiscordRPC.Configuration;
-using DiscordRPC.Utility;
-using MediaBrowser.Common.Configuration;
-using MediaBrowser.Common.Plugins;
-using MediaBrowser.Model.Plugins;
-using MediaBrowser.Model.Serialization;
-using MediaBrowser.Controller.Session;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Entities;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Identity.Data;
 using System.Linq;
-using System.Security.Cryptography.X509Certificates;
-using J2N;
-using System.ComponentModel;
-using DiscordRPC;
-using ICU4N.Text;
-using System.Dynamic;
-using System.Net.Mime;
-using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using DiscordRPC.Utility.Discord;
-using Jellyfin.Database.Implementations.Entities;
 using DiscordRPC.Utility.Discord.GatewayDTO;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Configuration;
-using Newtonsoft.Json;
 using Jellyfin.Data.Enums;
 using MediaBrowser.Controller.Entities;
 using System.Collections.Concurrent;
-using Polly.Caching;
-using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 
 namespace DiscordRPC.Utility;
@@ -137,9 +114,15 @@ public class PlaybackEventHandler : IDisposable
                 Assets? assetsObj = null;
                 if (playbackInfo.ImageLink != null)
                 {
+                    string? largeText = null;
+                    if (playbackItem.CommunityRating != null && playbackItem.CommunityRating > 0)
+                    {
+                        largeText = $"⭐{playbackItem.CommunityRating.Value.ToString("0.0", CultureInfo.InvariantCulture)} / 10";
+                    }
+
                     assetsObj = new Assets(
                         largeImage: playbackInfo.ImageLink,
-                        largeText: playbackItem.CommunityRating == null ? null : $"⭐{playbackItem.CommunityRating.Value.ToString("0.0", CultureInfo.InvariantCulture)} / 10"
+                        largeText: largeText
                     );
                 }
 

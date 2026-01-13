@@ -1,8 +1,3 @@
-using System;
-using Discord;
-using J2N.Numerics;
-using Microsoft.AspNetCore.SignalR;
-
 namespace DiscordRPC.Utility.Discord.GatewayDTO;
 
 public class Timestamps
